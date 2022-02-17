@@ -1,0 +1,12 @@
+name = Cache Consistent
+description = Use DB caching as ultimate fallback for perfect cache consistency
+core = 7.x
+
+files[] = tests/cache_consistent.test
+
+; Information added by Drupal.org packaging script on 2014-11-24
+version = "7.x-1.2"
+core = "7.x"
+project = "cache_consistent"
+datestamp = "1416810116"
+

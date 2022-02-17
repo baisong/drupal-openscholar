@@ -1,0 +1,458 @@
+<?php
+/**
+ * @file
+ * Web test cases for Cache Consistent.
+ */
+
+class ConsistentCacheTestTransaction {
+  public $cache_object;
+  public $tx;
+
+  function __construct($cache_object) {
+    $this->cache_object = $cache_object;
+    $this->tx = db_transaction();
+  }
+
+  function rollback() {
+    if ($this->tx) {
+      $this->tx->rollback();
+      $this->tx = NULL;
+      if ($this->cache_object instanceOf DrupalTransactionalCacheInterface) {
+        $this->cache_object->rollback(Database::getConnection()->transactionDepth());
+      }
+    }
+  }
+
+  function __destruct() {
+    if ($this->tx) {
+      $this->tx = NULL;
+      if ($this->cache_object instanceOf DrupalTransactionalCacheInterface) {
+        $this->cache_object->commit(Database::getConnection()->transactionDepth());
+      }
+    }
+  }
+}
+
+class ConsistentCacheTestCase extends DrupalWebTestCase {
+  public $module_path;
+  public $cache_default;
+  public $cache_test;
+  public $cache_lookup;
+  public $cache_consistent;
+
+  protected function setUp() {
+    $this->module_path = drupal_get_path('module', 'cache_consistent');
+    parent::setUp();
+
+    require_once DRUPAL_ROOT . '/' . $this->module_path . '/cache_consistent.inc';
+    require_once DRUPAL_ROOT . '/' . $this->module_path . '/cache_consistent.lookup.inc';
+    require_once DRUPAL_ROOT . '/' . $this->module_path . '/tests/cache_consistent.test.inc';
+
+    db_create_table('cache_consistent_test', drupal_get_schema_unprocessed('system', 'cache'));
+
+    $this->cache_default = _cache_get_object('cache_consistent_test');
+    $this->cache_default->testGroup = 'Database cache';
+
+    $this->cache_test = new DrupalDatabaseCacheTest('cache_consistent_test');
+    $this->cache_test->testGroup = 'Non-database cache';
+
+    global $conf;
+    $conf['consistent_cache_default_class'] = 'DrupalDatabaseCacheTest';
+
+    $conf['consistent_cache_default_safe'] = FALSE;
+    $this->cache_lookup = new ConsistentCacheLookup('cache_consistent_test');
+    $this->cache_lookup->testGroup = 'Consistent cache (lookup)';
+
+    $conf['consistent_cache_default_safe'] = FALSE;
+    $this->cache_consistent = new ConsistentCache('cache_consistent_test');
+    $this->cache_consistent->testGroup = 'Consistent cache';
+
+    $this->max = 1000;
+  }
+
+  protected function changeDatabasePrefix() {
+    parent::changeDatabasePrefix();
+    $connectionInfo = Database::getConnectionInfo();
+    Database::addConnectionInfo(
+      'default',
+      'test',
+      $connectionInfo['default']
+    );
+  }
+
+  protected function tearDown() {
+    parent::tearDown();
+  }
+
+  public static function getInfo() {
+    return array(
+      'name' => 'Cache Consistent',
+      'description' => 'Test consistent cache functionallity.',
+      'group' => 'Cache',
+    );
+  }
+
+  public function db_transaction($cache_object) {
+    return new ConsistentCacheTestTransaction($cache_object);
+  }
+
+  public function testDatabaseCache() {
+    $this->bufferTest($this->cache_default, 'value0');
+    $this->simpleTransactionTest($this->cache_default, 'value0');
+    $this->nestedTransactionTest($this->cache_default, 'value1');
+    $this->parallelTransactionTest($this->cache_default, 'value2');
+    $this->outOfOrderTransactionTest($this->cache_default, 'value3');
+    $this->wildcardTest($this->cache_default);
+    $this->multiClearTest($this->cache_default);
+    $this->pruneTest($this->cache_default, 'value5');
+    $this->speedTest1($this->cache_default, $this->max);
+    $this->speedTest2($this->cache_default, $this->max);
+    $this->speedTest3($this->cache_default, $this->max);
+    $this->speedTest4($this->cache_default, $this->max);
+  }
+
+  public function testNondatabaseCache() {
+    $this->bufferTest($this->cache_test, 'value1');
+    $this->simpleTransactionTest($this->cache_test, 'value1');
+
+    // The correct value for a working cache backend should be 'value1'.
+    $this->nestedTransactionTest($this->cache_test, 'value2');
+
+    // The correct value for a working cache backend should be 'value2'.
+    $this->parallelTransactionTest($this->cache_test, 'value3');
+
+    $this->outOfOrderTransactionTest($this->cache_test, 'value3');
+    $this->wildcardTest($this->cache_test);
+    $this->multiClearTest($this->cache_test);
+    $this->pruneTest($this->cache_test, 'value5');
+    $this->speedTest1($this->cache_test, $this->max);
+    $this->speedTest2($this->cache_test, $this->max);
+    $this->speedTest3($this->cache_test, $this->max);
+    $this->speedTest4($this->cache_test, $this->max);
+  }
+
+  public function testConsistentCache() {
+    $this->bufferTest($this->cache_consistent, 'value0');
+    $this->simpleTransactionTest($this->cache_consistent, 'value0');
+    $this->nestedTransactionTest($this->cache_consistent, 'value1');
+    $this->parallelTransactionTest($this->cache_consistent, 'value2');
+    $this->outOfOrderTransactionTest($this->cache_consistent, 'value3');
+    $this->wildcardTest($this->cache_consistent);
+    $this->multiClearTest($this->cache_consistent);
+    $this->pruneTest($this->cache_consistent, 'value5');
+    $this->speedTest1($this->cache_consistent, $this->max);
+    $this->speedTest2($this->cache_consistent, $this->max);
+    $this->speedTest3($this->cache_consistent, $this->max);
+    $this->speedTest4($this->cache_consistent, $this->max);
+  }
+
+  public function testLookupCache() {
+    $this->bufferTest($this->cache_lookup, 'value0');
+    $this->simpleTransactionTest($this->cache_lookup, 'value0');
+    $this->nestedTransactionTest($this->cache_lookup, 'value1');
+    $this->parallelTransactionTest($this->cache_lookup, 'value2');
+    $this->outOfOrderTransactionTest($this->cache_lookup, 'value3');
+    $this->wildcardTest($this->cache_lookup);
+    $this->multiClearTest($this->cache_lookup);
+    $this->pruneTest($this->cache_lookup, 'value5');
+    $this->speedTest1($this->cache_lookup, $this->max);
+    $this->speedTest2($this->cache_lookup, $this->max);
+    $this->speedTest3($this->cache_lookup, $this->max);
+    $this->speedTest4($this->cache_lookup, $this->max);
+  }
+
+  public function bufferTest($cache_object, $expect) {
+    $cache_object->set('test1', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value1');
+
+    $cache = $cache_object->get('test1');
+
+    $this->assertEqual('value1', $cache->data, format_string('Expect "@expect" in buffer, found "@data"', array(
+      '@expect' => 'value1',
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+
+    $tx->rollback();
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+  }
+
+  public function simpleTransactionTest($cache_object, $expect) {
+    $cache_object->set('test1', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value1');
+    $tx->rollback();
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+  }
+
+  public function nestedTransactionTest($cache_object, $expect) {
+    $cache_object->set('test1', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value1');
+    $tx1 = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value2');
+    $tx1->rollback();
+    unset($tx1);
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+
+    $cache_object->set('test1', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value1');
+    $tx1 = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value3');
+    $tx2 = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value2');
+    unset($tx2);
+    $tx1->rollback();
+    unset($tx1);
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+  }
+
+  public function parallelTransactionTest($cache_object, $expect) {
+    $cache_object->set('test1', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value1');
+    $tx1 = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value2');
+    unset($tx1);
+    $tx2 = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value3');
+    $tx2->rollback();
+    unset($tx2);
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+  }
+
+  public function outOfOrderTransactionTest($cache_object, $expect) {
+    $cache_object->set('test1', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value1');
+    $tx1 = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value2');
+    $tx2 = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value3');
+    unset($tx);
+    unset($tx1);
+    unset($tx2);
+
+    $cache = $cache_object->get('test1');
+
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+  }
+
+  public function wildcardTest($cache_object) {
+    $cache_object->set('test1', 'value0');
+    $tx = $this->db_transaction($cache_object);
+
+    $cache = $cache_object->get('test1');
+    $expect = 'value0';
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+
+    $cache_object->clear('test', TRUE);
+
+    $cache = $cache_object->get('test1');
+    $this->assertTrue(empty($cache->data), format_string('Cache was cleared for test*'), $cache_object->testGroup);
+
+    $cache_object->set('test1', 'value1');
+
+    $cache = $cache_object->get('test1');
+    $expect = 'value1';
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+    $expect = 'value1';
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+  }
+
+  public function multiClearTest($cache_object) {
+    $cache_object->set('test1', 'value0');
+    $cache_object->set('test2', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->clear(array('test1', 'test2'));
+    $cache_object->set('test1', 'value1');
+    $cache_object->set('test2', 'value1');
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+    $value = $cache ? $cache->data : NULL;
+    $expect = 'value1';
+    $this->assertEqual($expect, $value, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $value,
+    )), $cache_object->testGroup);
+
+    $cache = $cache_object->get('test2');
+    $value = $cache ? $cache->data : NULL;
+    $expect = 'value1';
+    $this->assertEqual($expect, $value, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $value,
+    )), $cache_object->testGroup);
+
+    $cache_object->set('test1', 'value0');
+    $cache_object->set('test2', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->clear(array('test1', 'test2'));
+    $cache_object->set('test1', 'value1');
+    $cache_object->set('test2', 'value1');
+    $cache_object->clear(array('test1', 'test2'));
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+    $value = $cache ? $cache->data : NULL;
+    $expect = NULL;
+    $this->assertEqual($expect, $value, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $value,
+    )), $cache_object->testGroup);
+
+    $cache = $cache_object->get('test2');
+    $value = $cache ? $cache->data : NULL;
+    $expect = NULL;
+    $this->assertEqual($expect, $value, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $value,
+    )), $cache_object->testGroup);
+  }
+
+  public function pruneTest($cache_object, $expect) {
+    $cache_object->set('test1', 'value0');
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->set('test1', 'value1');
+    $cache_object->set('test1', 'value2');
+    $cache_object->clear('test1');
+    $cache_object->set('test1', 'value3');
+    $cache_object->clear('test1');
+    $cache_object->set('test1', 'value4');
+    $cache_object->clear('test', TRUE);
+    $cache_object->set('test1', 'value5');
+    unset($tx);
+
+    $cache = $cache_object->get('test1');
+
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data"', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+    )), $cache_object->testGroup);
+  }
+
+  public function speedTest1($cache_object, $max) {
+    $start = microtime(TRUE);
+    for ($i = 1; $i <= $max; $i++) {
+      $cache_object->set('test' . $i, 'value0');
+    }
+    $end = microtime(TRUE);
+
+    $time = $end - $start;
+
+    $this->assertTrue(TRUE, format_string('Speed test completed. Took @time seconds', array(
+      '@time' => sprintf("%.08f", $time)
+    )), $cache_object->testGroup);
+  }
+
+  public function speedTest2($cache_object, $max) {
+    $start = microtime(TRUE);
+    $tx = $this->db_transaction($cache_object);
+    for ($i = 1; $i <= $max; $i++) {
+      $cache_object->set('test' . $i, 'value1');
+    }
+    unset($tx);
+    $end = microtime(TRUE);
+
+    $time = $end - $start;
+
+    $this->assertTrue(TRUE, format_string('Speed test completed. Took @time seconds', array(
+      '@time' => sprintf("%.08f", $time)
+    )), $cache_object->testGroup);
+  }
+
+  public function speedTest3($cache_object, $max) {
+    $start = microtime(TRUE);
+    $tx = $this->db_transaction($cache_object);
+    $cache_object->clear('test0', TRUE);
+    for ($i = 1; $i <= $max; $i++) {
+      $cache_object->set('test' . $i, 'value1');
+    }
+    for ($i = 1; $i <= $max; $i++) {
+      $cache_object->get('test0');
+    }
+    unset($tx);
+    $end = microtime(TRUE);
+
+    $time = $end - $start;
+
+    $this->assertTrue(TRUE, format_string('Speed test completed. Took @time seconds', array(
+      '@time' => sprintf("%.08f", $time)
+    )), $cache_object->testGroup);
+  }
+
+  public function speedTest4($cache_object, $max) {
+    $start = microtime(TRUE);
+    $cache_object->clear('test1', TRUE);
+    $tx = $this->db_transaction($cache_object);
+    for ($i = 1; $i <= $max; $i++) {
+      $cache_object->set('test1', 'value' . $i);
+    }
+    unset($tx);
+    $end = microtime(TRUE);
+
+    $time = $end - $start;
+
+    $cache = $cache_object->get('test1');
+    $expect = 'value' . $max;
+
+    $this->assertEqual($expect, $cache->data, format_string('Expect "@expect" in cache, found "@data", took @time seconds', array(
+      '@expect' => $expect,
+      '@data' => $cache->data,
+      '@time' => sprintf("%.08f", $time),
+    )), $cache_object->testGroup);
+
+  }
+}

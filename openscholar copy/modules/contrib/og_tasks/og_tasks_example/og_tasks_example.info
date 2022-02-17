@@ -1,0 +1,16 @@
+name = OG Tasks example
+description = Example module for OG Tasks
+package = "Organic groups"
+
+dependencies[] = og_tasks
+dependencies[] = message_notify
+
+files[] = includes/og_tasks_example.task.inc
+
+core = 7.x
+version = 7.x-2.x
+
+; Information added by drush on 2011-06-20
+version = "7.x-1.0"
+project = "og_tasks"
+datestamp = "1308593380"

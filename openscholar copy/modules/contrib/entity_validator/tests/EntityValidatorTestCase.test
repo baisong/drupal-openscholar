@@ -1,0 +1,308 @@
+<?php
+
+/**
+ * @file
+ * Contains EntityValidatorTestCase.
+ */
+
+class EntityValidatorTestCase extends DrupalWebTestCase {
+
+  public static function getInfo() {
+    return array(
+      'name' => 'Validate entity',
+      'description' => 'Test the validation on an entity.',
+      'group' => 'Entity validator',
+    );
+  }
+
+  function setUp() {
+    parent::setUp('entity_validator', 'entity_validator_example', 'image');
+
+    // Create the article and attach the field image.
+    $this->drupalCreateContentType(array('name' => 'article'));
+
+    $instance = field_info_instance('node', 'field_image', 'article');
+    $instance['settings'] = array(
+      'file_directory' => 'field/image',
+      'file_extensions' => 'pdf',
+      'max_filesize' => '',
+      'max_resolution' => '39X19',
+      'min_resolution' => '41X21',
+      'alt_field' => TRUE,
+      'title_field' => '',
+      'default_image' => '',
+    );
+
+    field_update_instance($instance);
+
+    // Create a multiple file field.
+    $field = field_info_field('field_image');
+    $field['cardinality'] = FIELD_CARDINALITY_UNLIMITED;
+    $field['field_name'] = 'field_image_multiple';
+    field_create_field($field);
+
+    // Attach the instance.
+    $instance['field_name'] = 'field_image_multiple';
+    field_create_instance($instance);
+
+    // Add integer field.
+    $field = array(
+      'field_name' => 'integer_single',
+      'type' => 'number_integer',
+      'cardinality' => 1,
+    );
+    field_create_field($field);
+
+    $instance = array(
+      'entity_type' => 'node',
+      'bundle' => 'article',
+      'field_name' => 'integer_single',
+    );
+    field_create_instance($instance);
+  }
+
+  /**
+   * Test the validation on an entity.
+   */
+  function testValidate() {
+    $values = array(
+      // Two chars title.
+      'title' => 'no',
+      'type' => 'article',
+    );
+    $node = entity_create('node', $values);
+    $handler = entity_validator_get_validator_handler('node', 'article');
+    $wrapper = entity_metadata_wrapper('node', $node);
+
+
+    $file = $this->createImage();
+    $wrapper->field_image->set(array('fid' => $file->fid));
+    $wrapper->field_image_multiple->set(array(array('fid' => $file->fid), array('fid' => $file->fid)));
+
+    // We can't use the wrapper to set a wrong value, so do it directly on the
+    // node object.
+    $node->integer_single[LANGUAGE_NONE][0]['value'] = 'Not a number!';
+
+    try {
+      $handler->validate($node);
+    }
+    catch (\EntityValidatorException $e) {
+      $this->pass('Exception "\EntityValidatorException" was thrown.');
+    }
+    catch (\Exception $e) {
+      $this->fail('Exception was not of type "\EntityValidatorException".');
+    }
+
+    // Silent mode.
+    $results = $handler->validate($node, TRUE);
+    $this->assertFalse($results, 'Validate in silent mode did not throw an exception.');
+
+    $results = $handler->getErrors(FALSE);
+    $expected_results = array(
+      'title' => array(
+        array(
+          'message' => 'The @field should be at least 3 characters long.',
+          'params' => array(
+            '@field' => 'title',
+          ),
+        ),
+      ),
+      'field_image' => array(
+        array(
+          'message' => 'The width of the image(@width) is bigger then the allowed size(@max-width)',
+          'params' => array(
+            '@width' => 40,
+            '@height' => 20,
+            '@max-width' => '19',
+            '@max-height' => '39',
+            '@field' => 'field_image',
+          ),
+        ),
+        array(
+          'message' => 'The height of the image(@height) is bigger then the allowed size(@min-height)',
+          'params' => array(
+            '@width' => 40,
+            '@height' => 20,
+            '@max-width' => '19',
+            '@max-height' => '39',
+            '@min-width' => '21',
+            '@min-height' => '41',
+            '@field' => 'field_image',
+          ),
+        ),
+        array(
+          'message' => 'The file (@file-name) extension (@extension) did not match the allowed extensions: @extensions',
+          'params' => array(
+            '@file-name' => 'image-test.png',
+            '@extension' => 'png',
+            '@extensions' => 'pdf',
+            '@field' => 'field_image',
+          ),
+        ),
+      ),
+      'field_image_multiple' => array(
+        array(
+          'message' => 'The width of the image(@width) is bigger then the allowed size(@max-width)',
+          'params' => array(
+            '@width' => 40,
+            '@height' => 20,
+            '@max-width' => '19',
+            '@max-height' => '39',
+            '@field' => 'field_image_multiple',
+          ),
+        ),
+        array(
+          'message' => 'The height of the image(@height) is bigger then the allowed size(@min-height)',
+          'params' => array(
+            '@width' => 40,
+            '@height' => 20,
+            '@max-width' => '19',
+            '@max-height' => '39',
+            '@min-width' => '21',
+            '@min-height' => '41',
+            '@field' => 'field_image_multiple',
+          ),
+        ),
+        array(
+          'message' => 'The width of the image(@width) is bigger then the allowed size(@max-width)',
+          'params' => array(
+            '@width' => 40,
+            '@height' => 20,
+            '@max-width' => '19',
+            '@max-height' => '39',
+            '@field' => 'field_image_multiple',
+          ),
+        ),
+        array(
+          'message' => 'The height of the image(@height) is bigger then the allowed size(@min-height)',
+          'params' => array(
+            '@width' => 40,
+            '@height' => 20,
+            '@max-width' => '19',
+            '@max-height' => '39',
+            '@min-width' => '21',
+            '@min-height' => '41',
+            '@field' => 'field_image_multiple',
+          ),
+        ),
+        array(
+          'message' => 'The file (@file-name) extension (@extension) did not match the allowed extensions: @extensions',
+          'params' => array(
+            '@file-name' => 'image-test.png',
+            '@extension' => 'png',
+            '@extensions' => 'pdf',
+            '@field' => 'field_image_multiple',
+          ),
+        ),
+        array(
+          'message' => 'The file (@file-name) extension (@extension) did not match the allowed extensions: @extensions',
+          'params' => array(
+            '@file-name' => 'image-test.png',
+            '@extension' => 'png',
+            '@extensions' => 'pdf',
+            '@field' => 'field_image_multiple',
+          ),
+        ),
+      ),
+      'body' => array(
+        array(
+          'message' => 'The @field should have the word "Drupal".',
+          'params' => array(
+            '@field' => 'body',
+          ),
+        ),
+      ),
+      'integer_single' => array(
+        array(
+          'message' => 'Invalid value for the field @field.',
+          'params' => array(
+            '@field' => 'integer_single',
+          ),
+        ),
+      ),
+    );
+
+    $field_names = array(
+      'title',
+      'body',
+      'field_image',
+      'field_image_multiple',
+      'integer_single',
+    );
+
+    foreach ($field_names as $field_name) {
+      $this->assertEqual($results[$field_name], $expected_results[$field_name], format_string('The silent mode returned the expected results for field @field.', array('@field' => $field_name)));
+    }
+
+    // Validating a custom schema.
+    $validator = entity_validator_get_schema_validator('entity_validator_example');
+
+    $object = new stdClass();
+    $object->id = 1;
+    $object->title = 'a';
+    $object->created = 120;
+
+    try {
+      $validator->validate($object);
+    }
+    catch (\EntityValidatorException $e) {
+      $this->pass('Exception "\EntityValidatorException" was thrown.');
+    }
+    catch (\Exception $e) {
+      $this->fail('Exception was not of type "\EntityValidatorException".');
+    }
+
+    $result = $validator->validate($object, TRUE);
+    $this->assertFalse($result, 'Validate a custom schema in a silent mode did not throw an exception.');
+
+    // Verify we got right errors.
+    $results = $validator->getErrors(FALSE);
+    $expected_results = array(
+      'title' => array(
+        array(
+          'message' => 'The @property property should be at least 3 characters long.',
+          'params' => array(
+            '@property' => 'title',
+          ),
+        ),
+      ),
+      'created' => array(
+        array(
+          'message' => 'The @property property should be a valid unix time stamp.',
+          'params' => array(
+            '@property' => 'created',
+          ),
+        ),
+      ),
+    );
+
+    $field_names = array(
+      'title',
+      'created',
+    );
+
+    foreach ($field_names as $field_name) {
+      $this->assertEqual($results[$field_name], $expected_results[$field_name], format_string('The silent mode returned the expected results for field @field.', array('@field' => $field_name)));
+    }
+  }
+
+  /**
+   * Create an image for testing the image validator.
+   *
+   * @return stdClass
+   *  The field object.
+   */
+  private function createImage() {
+    $files = $this->drupalGetTestFiles('image');
+    $file = reset($files);
+
+    $source = new stdClass();
+    $source->uri = $file->uri;
+    $source->uid = 1;
+    $source->filemime = 'image/' . pathinfo($file->uri, PATHINFO_EXTENSION);
+    $source->filename = basename($file->uri);
+    $file = file_save($source);
+
+    return $file;
+  }
+}

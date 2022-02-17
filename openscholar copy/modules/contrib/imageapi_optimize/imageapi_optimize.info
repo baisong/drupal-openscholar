@@ -1,0 +1,8 @@
+name = ImageAPI Optimize
+description = An optimized version Image Toolkits
+core = 7.x
+
+; Information added by drush on 2016-02-24
+version = "7.x-1.2+1-dev"
+project = "imageapi_optimize"
+datestamp = "1456305684"

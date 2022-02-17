@@ -1,0 +1,12 @@
+; $Id$
+name= Image crop
+description = Add cropping ability to images using javascript
+core = 7.x
+version = 7.x-2.x-dev
+dependencies[] = image
+files[] = imagefield_crop.module
+
+; Information added by drush on 2012-07-25
+version = "7.x-2.0+7-dev"
+project = "imagefield_crop"
+datestamp = "1343246922"
